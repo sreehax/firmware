@@ -24,6 +24,7 @@
           buildInputs = [
             rust
             pkgs.rust-analyzer
+            pkgs.elf2uf2-rs
           ];
         };
       }
