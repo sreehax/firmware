@@ -1,11 +1,15 @@
 #![no_std]
 #![no_main]
 
+/// N-Key Rollover Support
 mod nkro;
+mod matrix;
 
+use matrix::Matrix;
 // The macro for our start-up function
 use rp_pico::entry;
 
+use rp_pico::hal::gpio::{DynPinId, FunctionSioOutput, Pin, FunctionSioInput, PullUp, PullNone};
 // The macro for marking our interrupt functions
 use rp_pico::hal::pac::interrupt;
 
@@ -31,7 +35,6 @@ use usb_device::{class_prelude::*, prelude::*};
 use usbd_hid::descriptor::generator_prelude::*;
 use usbd_hid::hid_class::HIDClass;
 use nkro::NKROReport;
-
 /// The USB Device Driver (shared with the interrupt).
 static mut USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 
@@ -41,23 +44,19 @@ static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 /// The USB Human Interface Device Driver (shared with the interrupt).
 static mut USB_HID: Option<HIDClass<hal::usb::UsbBus>> = None;
 
-/// Entry point to our bare-metal application.
-///
-/// The `#[entry]` macro ensures the Cortex-M start-up code calls this function
-/// as soon as all global variables are initialised.
-///
-/// The function configures the RP2040 peripherals, then submits keyboard movement
-/// updates periodically.
+type OutputType = Pin<DynPinId, FunctionSioOutput, PullNone>;
+type InputType = Pin<DynPinId, FunctionSioInput, PullUp>;
+
 #[entry]
 fn main() -> ! {
     // Grab our singleton objects
     let mut pac = pac::Peripherals::take().unwrap();
-
+    let core = pac::CorePeripherals::take().unwrap();
+    
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
 
     // Configure the clocks
-    //
     // The default is to generate a 125 MHz system clock
     let clocks = hal::clocks::init_clocks_and_plls(
         rp_pico::XOSC_CRYSTAL_FREQ,
@@ -72,13 +71,101 @@ fn main() -> ! {
     .unwrap();
 
     // Work around the RP2040-E5 Errata
-    let sio = hal::Sio::new(pac.SIO);
-    let _pins = rp_pico::Pins::new(
+    let mut sio = hal::Sio::new(pac.SIO);
+    let pins = rp_pico::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
+    let mut matrix = Matrix::<OutputType, InputType, 15, 5>::new(
+        [
+            pins.gpio0
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio1
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio2
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio3
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio4
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio5
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio6
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio7
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio8
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio9
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio10
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio11
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio12
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio13
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio14
+                .into_push_pull_output()
+                .into_pull_type()
+                .into_dyn_pin(),
+        ],
+        [
+            pins.gpio16
+                .into_pull_up_input()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio17
+                .into_pull_up_input()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio18
+                .into_pull_up_input()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio19
+                .into_pull_up_input()
+                .into_pull_type()
+                .into_dyn_pin(),
+            pins.gpio20
+                .into_pull_up_input()
+                .into_pull_type()
+                .into_dyn_pin(),
+        ]
+    ).expect("bruh moment");
+
+    // Might as well set up all the GPIO while we are at it...
 
     // Set up the USB driver
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
@@ -98,7 +185,7 @@ fn main() -> ! {
     // reference exists!
     let bus_ref = unsafe { USB_BUS.as_ref().unwrap() };
 
-    // Set up the USB HID Class Device driver, providing NKRO Reports
+    // Set up the USB HID Class Device driver, providing NKRO Reports every 20ms
     let usb_hid = HIDClass::new(bus_ref, NKROReport::desc(), 20);
     unsafe {
         // Note (safety): This is safe as interrupts haven't been started yet.
@@ -121,37 +208,17 @@ fn main() -> ! {
         // Enable the USB interrupt
         pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
     };
-    let core = pac::CorePeripherals::take().unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-
+    let sys_freq = clocks.system_clock.freq().to_Hz();
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, sys_freq);
+    
     // Press and release the "A" key every 100ms
     loop {
-        delay.delay_ms(100);
-        let a_key = NKROReport {
-            modifier: 0,
-            reserved: 0,
-            leds: 0,
-            fake_boot: [4, 0, 0, 0, 0, 0],
-            keys: [16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        };
-
-        push_keyboard_state(a_key).ok().unwrap_or(0);
-
-        delay.delay_ms(100);
-
-        let no_keys = NKROReport {
-            modifier: 0,
-            reserved: 0,
-            leds: 0,
-            fake_boot: [0; 6],
-            keys: [0; 15]
-        };
-        push_keyboard_state(no_keys).ok().unwrap_or(0);
+        let _ = matrix.get_raw().expect("bruh moment 2");
+        // push_keyboard_state(no_keys).ok().unwrap_or(0);
     }
 }
 
 /// Submit a new keyboard report to the USB stack.
-///
 /// We do this with interrupts disabled, to avoid a race hazard with the USB IRQ.
 fn push_keyboard_state(report: NKROReport) -> Result<usize, usb_device::UsbError> {
     critical_section::with(|_| unsafe {
