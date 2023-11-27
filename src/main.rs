@@ -4,6 +4,8 @@
 /// N-Key Rollover Support
 mod nkro;
 mod matrix;
+mod keycodes;
+mod layout;
 
 use matrix::Matrix;
 // The macro for our start-up function
@@ -78,6 +80,8 @@ fn main() -> ! {
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
+
+    // The matrix is big...
     let mut matrix = Matrix::<OutputType, InputType, 15, 5>::new(
         [
             pins.gpio0
@@ -211,10 +215,10 @@ fn main() -> ! {
     let sys_freq = clocks.system_clock.freq().to_Hz();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, sys_freq);
     
-    // Press and release the "A" key every 100ms
     loop {
-        let _ = matrix.get_raw().expect("bruh moment 2");
-        // push_keyboard_state(no_keys).ok().unwrap_or(0);
+        let scanned_bitmap = matrix.get_raw().expect("bruh moment 2");
+        let report0 = layout::bitmap_to_report(&scanned_bitmap);
+        let _ = push_keyboard_state(report0);
     }
 }
 

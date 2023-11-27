@@ -1,6 +1,5 @@
 use core::convert::TryInto;
 use embedded_hal::digital::v2::{InputPin, OutputPin, PinState};
-use crate::nkro::NKROReport;
 
 pub struct Matrix<C, R, const CS: usize, const RS: usize>
 where

@@ -35,3 +35,16 @@ pub struct NKROReport {
     pub fake_boot: [u8; 6],
     pub keys: [u8; 15]
 }
+
+#[allow(dead_code)]
+impl NKROReport {
+    pub fn new() -> NKROReport {
+        NKROReport {
+            modifier: 0,
+            reserved: 0,
+            leds: 0,
+            fake_boot: [0; 6],
+            keys: [0; 15],
+        }
+    }
+}
